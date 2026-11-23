@@ -1,0 +1,118 @@
+# -*- coding: utf-8 -*-
+"""
+PDFMathTranslate 1.9.11 - PyStand 启动脚本
+双击 PDFMathTranslate.exe 时：准备离线资源 -> 启动 Web 图形界面 -> 自动打开浏览器
+带参数运行时：按命令行工具使用（例如 PDFMathTranslate.exe input.pdf -s bing -lo zh）
+"""
+import contextlib
+import io
+import os
+import socket
+import sys
+import traceback
+
+HOME = os.path.dirname(os.path.abspath(__file__))
+VERSION = "1.9.11"
+DEFAULT_PORT = 7860
+
+
+def say(text=""):
+    try:
+        print(text, flush=True)
+    except Exception:
+        pass
+
+
+def set_console_title():
+    try:
+        import ctypes
+
+        ctypes.windll.kernel32.SetConsoleTitleW("PDFMathTranslate " + VERSION)
+    except Exception:
+        pass
+
+
+def find_free_port(start=DEFAULT_PORT, count=30):
+    """从 7860 开始找一个空闲端口，避免多开时报“端口被占用”"""
+    for port in range(start, start + count):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            try:
+                sock.bind(("127.0.0.1", port))
+                return port
+            except OSError:
+                continue
+    return start
+
+
+def prepare_offline_assets():
+    """首次启动时解压同目录下的 offline_assets_*.zip（模型 + 字体），之后直接使用缓存"""
+    zips = [
+        name
+        for name in os.listdir(HOME)
+        if name.startswith("offline_assets_") and name.endswith(".zip")
+    ]
+    if not zips:
+        return
+    try:
+        import pathlib
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            import babeldoc.assets.assets as assets
+
+        say("正在准备翻译模型与字体（仅首次启动需要，约 1 分钟）...")
+        with contextlib.redirect_stdout(io.StringIO()):
+            assets.restore_offline_assets_package(pathlib.Path(HOME))
+        say("模型与字体已就绪。")
+    except (Exception, SystemExit):
+        say("[提示] 离线资源包未能完全解压，程序会在联网时自动下载所需资源。")
+
+
+def main():
+    set_console_title()
+    say("=" * 66)
+    say(" PDFMathTranslate " + VERSION + "   PDF 文档翻译工具")
+    say(" 开源项目: https://github.com/PDFMathTranslate/PDFMathTranslate")
+    say("=" * 66)
+
+    prepare_offline_assets()
+
+    gui_mode = len(sys.argv) == 1
+    if not gui_mode:
+        # 让 --help 等提示显示为 PDFMathTranslate.exe，而不是 .int 脚本名
+        sys.argv[0] = "PDFMathTranslate.exe"
+    if gui_mode:
+        port = find_free_port()
+        sys.argv = [sys.argv[0], "-i", "--serverport", str(port)]
+        say("")
+        say(" 正在启动图形界面，浏览器会自动打开；若未弹出请手动访问：")
+        say("     http://127.0.0.1:%d/" % port)
+        say(" 提示: 这个黑色窗口是程序本体，使用期间请不要关闭。")
+        say("")
+
+    code = 0
+    try:
+        import pdf2zh.pdf2zh as app
+
+        result = app.main()
+        if isinstance(result, int):
+            code = result
+    except KeyboardInterrupt:
+        say("")
+        say("已退出。")
+    except SystemExit as exc:
+        code = exc.code if isinstance(exc.code, int) else 0
+    except BaseException:
+        traceback.print_exc()
+        code = 1
+        say("")
+        say("程序异常退出，请把上面的报错信息反馈给开发者。")
+        if gui_mode:
+            try:
+                input("按回车键关闭窗口...")
+            except Exception:
+                pass
+    return code
+
+
+if __name__ == "__main__":
+    sys.exit(main())
